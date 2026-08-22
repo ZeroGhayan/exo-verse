@@ -35,10 +35,10 @@ typedef struct ExoMove {
 	uint8_t hitstun;
 	uint8_t damage;
 	bool    air_ok;
-    ExoElem type;
+	ExoElem type;
 	ExoHeight height;
 	bool grab;
-	uint8_t meter_hit; /* 0 = este golpe não enche a barra */
+	uint8_t meter_hit;
 	uint8_t chip;
 } ExoMove;
 
@@ -50,7 +50,7 @@ typedef struct ExoFighter {
 	const ExoMove *move;
 	int16_t        hp;
 	int16_t        hp_max;
-    ExoElem type;
+	ExoElem type;
 	ExoElem type2;
 	bool crouched;
 	bool cancel;
@@ -59,7 +59,7 @@ typedef struct ExoFighter {
 bool exo_aabb(const ExoRect *a, const ExoRect *b);
 
 void exo_fighter_init(ExoFighter *f, float x, float y, float w, float h);
-void exo_fighter_attack(ExoFighter *f, const ExoMove *move);
+bool exo_fighter_attack(ExoFighter *f, const ExoMove *move);
 void exo_fighter_tick(ExoFighter *f);
 bool exo_fighter_can_act(const ExoFighter *f);
 bool exo_fighter_busy(const ExoFighter *f);
