@@ -643,20 +643,22 @@ int main(int argc, char **argv)
 					d1.run = 0;
 				}
 				if (buf_b && p1.body.grounded && act1) {
-					buf_b = 0;
-					d1.run = 0;
-					exo_fighter_attack(&p1, &GRAB_MOVE);
+					if (exo_fighter_attack(&p1, &GRAB_MOVE)) {
+						buf_b = 0;
+						d1.run = 0;
+					}
 				} else if (buf_y) {
-					buf_y = 0;
-					d1.run = 0;
-					exo_fighter_attack(&p1,
-						pick_move(p1.body.grounded, in->stick_y < -0.50f));
+					if (exo_fighter_attack(&p1,
+					    pick_move(p1.body.grounded, in->stick_y < -0.50f))) {
+						buf_y = 0;
+						d1.run = 0;
+					}
 				} else if (buf_x && p1.body.grounded) {
-					if (g_meter >= 50) {
+					if (g_meter >= 50 &&
+					    exo_fighter_attack(&p1, &g_special)) {
 						buf_x = 0;
 						d1.run = 0;
 						g_meter = (uint8_t)(g_meter - 50);
-						exo_fighter_attack(&p1, &g_special);
 					}
 				}
 			} else {
