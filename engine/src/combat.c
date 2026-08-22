@@ -18,35 +18,36 @@ void exo_fighter_init(ExoFighter *f, float x, float y, float w, float h)
 	f->move = 0;
 	f->hp_max = 100;
 	f->hp = 100;
-    f->type = EXO_NORMAL;
-    f->type2 = EXO_NORMAL;
+	f->type = EXO_NORMAL;
+	f->type2 = EXO_NORMAL;
 	f->crouched = false;
 	f->cancel = false;
 }
 
-void exo_fighter_attack(ExoFighter *f, const ExoMove *m)
+bool exo_fighter_attack(ExoFighter *f, const ExoMove *m)
 {
 	bool gatling;
 
 	if (!m)
-		return;
+		return false;
 
 	gatling = f->cancel &&
 	          (f->phase == EXO_PHASE_ACTIVE ||
 	           f->phase == EXO_PHASE_RECOVERY);
 
 	if (!exo_fighter_can_act(f) && !gatling)
-		return;
+		return false;
 	if (!f->body.grounded && !m->air_ok)
-		return;
+		return false;
 	if (m->grab && gatling)
-		return;
+		return false;
 
 	f->move = m;
 	f->phase = EXO_PHASE_STARTUP;
 	f->timer = m->startup;
 	f->hit_done = false;
 	f->cancel = false;
+	return true;
 }
 
 bool exo_fighter_can_act(const ExoFighter *f)
@@ -88,7 +89,7 @@ void exo_fighter_tick(ExoFighter *f)
 		return;
 	}
 
-    if (f->phase == EXO_PHASE_IDLE || f->phase == EXO_PHASE_BLOCK)
+	if (f->phase == EXO_PHASE_IDLE || f->phase == EXO_PHASE_BLOCK)
 		return;
 	if (f->timer > 0)
 		f->timer--;
