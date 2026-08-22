@@ -9,6 +9,7 @@
 #define GROUND_Y   200.0f
 #define GRAVITY    900.0f
 #define WALK       160.0f
+#define BACKWALK   112.0f
 #define AIR        110.0f
 #define JUMP_SPD   320.0f
 #define BODY_W     36.0f
@@ -189,7 +190,10 @@ static void control(ExoBody *b, float axis_x, bool jump, Dash *d)
 		if (jump)
 			exo_body_jump(b, JUMP_SPD);
 	} else {
-		b->vx = axis_x * (b->grounded ? WALK : AIR);
+		float spd = b->grounded ? WALK : AIR;
+		if (b->grounded && axis_x * (float)b->facing < 0.0f)
+			spd = BACKWALK;
+		b->vx = axis_x * spd;
 		if (jump)
 			exo_body_jump(b, JUMP_SPD);
 	}
@@ -504,12 +508,9 @@ static void draw_bottom(const ExoFighter *p1, const ExoFighter *p2, const Dash *
 		exo_text(12.0f, 128.0f, 0.45f, dim,
 		         p2->crouched ? "P2 AGACHADO  LOW OK" : "P2 EM PE  OVER OK");
 
-	//if (p1->cancel)
-	//	exo_text(200.0f, 150.0f, 0.45f, acc, "CANCEL");
-
 	snprintf(line, sizeof(line), "DASH P1 %s", d1->run ? ">>>" : "---");
 	exo_text(12.0f, 150.0f, 0.45f, d1->run ? acc : dim, line);
-	
+
 	if (g_combo >= 2) {
 		snprintf(line, sizeof(line), "COMBO %u", (unsigned)g_combo);
 		exo_text(200.0f, 150.0f, 0.5f, acc, line);
@@ -522,7 +523,7 @@ static void draw_bottom(const ExoFighter *p1, const ExoFighter *p2, const Dash *
 	    g_meter >= 50 ? acc : dim);
 
 	exo_text(12.0f, 180.0f, 0.4f, dim, "Y SOCO  X SPECIAL  B GRAB");
-	exo_text(12.0f, 200.0f, 0.4f, dim, "P2 D-PAD  L/R GUARDA");
+	exo_text(12.0f, 200.0f, 0.4f, dim, "P2 D-PAD ANDA  CIMA JAB");
 }
 
 static void reset_round(ExoFighter *p1, ExoFighter *p2, Dash *d1)
@@ -629,7 +630,7 @@ int main(int argc, char **argv)
 				td = read_throw_dir(&p1, in);
 				if (td != 0 || p1.timer == 0)
 					do_throw(&p1, &p2, td ? td : 1);
-						} else if (act1 || p1.phase == EXO_PHASE_BLOCK || p1.cancel) {
+			} else if (act1 || p1.phase == EXO_PHASE_BLOCK || p1.cancel) {
 				if (act1 || p1.phase == EXO_PHASE_BLOCK)
 					exo_fighter_guard(&p1, want_block(&p1, in->stick_x, false));
 				if (act1) {
@@ -666,12 +667,13 @@ int main(int argc, char **argv)
 			if (p2.phase != EXO_PHASE_GRABBED) {
 				if (exo_fighter_can_act(&p2) || p2.phase == EXO_PHASE_BLOCK) {
 					exo_fighter_guard(&p2, want_block(&p2, a2, sh));
-					if (exo_fighter_can_act(&p2))
+					if (exo_fighter_can_act(&p2)) {
 						control(&p2.body, a2, false, &d2);
-					if (exo_down(EXO_BTN_UP))
-						exo_fighter_attack(&p2, &g_punch);
-					else
+						if (exo_down(EXO_BTN_UP))
+							exo_fighter_attack(&p2, &g_punch);
+					} else {
 						p2.body.vx = 0.0f;
+					}
 				} else {
 					p2.body.vx = 0.0f;
 				}
