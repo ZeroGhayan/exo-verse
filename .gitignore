@@ -1,0 +1,6 @@
+platforms/3ds/build/
+*.3dsx
+*.elf
+*.smdh
+*.o
+*.d
