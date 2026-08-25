@@ -231,6 +231,9 @@ void exo_fighter_apply_hit(ExoFighter *victim, const ExoFighter *attacker)
 	if (!m)
 		return;
 
+	if (victim->phase == EXO_PHASE_TAUNT && victim->taunt_lock)
+		victim->taunt_cd = victim->taunt_lock;
+
 	at = m->type;
 	mul = exo_elem_mul2(at, victim->type, victim->type2);
 
