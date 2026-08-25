@@ -20,6 +20,8 @@
 #define TAP_WIN    20
 #define TAP_EDGE   0.40f
 #define BUF_WIN    8
+#define TAUNT_FR   48
+#define TAUNT_CD   180
 
 static const ExoMove PUNCH_BASE = {
 	.startup  = 6,
@@ -107,13 +109,6 @@ static uint8_t g_combo;
 static uint8_t g_counter;
 static uint8_t g_meter;
 static uint8_t buf_y, buf_x, buf_b;
-
-typedef struct ExoMeter {
-	uint16_t value[2];
-	uint16_t max[2];
-	uint8_t  slots;
-	uint8_t  cost;
-} ExoMeter;
 
 typedef struct Dash {
 	uint8_t run;
@@ -397,6 +392,11 @@ static void draw_fighter(const ExoFighter *f, float cam, float par, uint32_t bod
 		float eye_x = (f->body.facing > 0) ? (sx + f->body.w - 14.0f) : (sx + 4.0f);
 		C2D_DrawRectangle(eye_x, sy + 4.0f, 0.0f, 10.0f, 6.0f, accent, accent, accent, accent);
 	}
+	if (f->phase == EXO_PHASE_TAUNT) {
+		uint32_t ylw = rgba(255, 220, 60, 255);
+		C2D_DrawRectangle(sx + 6.0f, sy - 10.0f, 0.0f, f->body.w - 12.0f, 6.0f,
+		                  ylw, ylw, ylw, ylw);
+	}
 }
 
 static void draw_guard(const ExoFighter *f, float cam, ExoEye eye)
@@ -473,7 +473,7 @@ static void bar(float x, float y, float w, float h, float fill, uint32_t fg)
 		exo_bot_rect(x, y, w * fill, h, fg);
 }
 
-static void draw_bottom(const ExoFighter *p1, const ExoFighter *p2, const Dash *d1)
+static void draw_bottom(const ExoFighter *p1, const ExoFighter *p2, const Dash *d1, bool paused)
 {
 	char line[64];
 	uint16_t mp = exo_elem_mul2(g_atk, p2->type, p2->type2);
@@ -485,6 +485,13 @@ static void draw_bottom(const ExoFighter *p1, const ExoFighter *p2, const Dash *
 	float f2 = (p2->hp_max > 0) ? (float)p2->hp / (float)p2->hp_max : 0.0f;
 
 	exo_text_begin();
+	if (paused) {
+		exo_text(90.0f, 80.0f, 0.7f, acc, "PAUSA");
+		exo_text(40.0f, 130.0f, 0.45f, t, "START  CONTINUA");
+		exo_text(40.0f, 170.0f, 0.45f, acc, "TOQUE AQUI  SAIR");
+		return;
+	}
+
 	bar(12.0f, 16.0f, 140.0f, 14.0f, f1, rgba(70, 180, 255, 255));
 	bar(168.0f, 16.0f, 140.0f, 14.0f, f2, rgba(230, 70, 90, 255));
 
@@ -504,6 +511,8 @@ static void draw_bottom(const ExoFighter *p1, const ExoFighter *p2, const Dash *
 
 	if (p1->phase == EXO_PHASE_GRAB)
 		exo_text(12.0f, 128.0f, 0.45f, acc, "CLINCH  PAD ARREMESSAR");
+	else if (p1->phase == EXO_PHASE_TAUNT)
+		exo_text(12.0f, 128.0f, 0.45f, acc, "TAUNT");
 	else
 		exo_text(12.0f, 128.0f, 0.45f, dim,
 		         p2->crouched ? "P2 AGACHADO  LOW OK" : "P2 EM PE  OVER OK");
@@ -517,13 +526,18 @@ static void draw_bottom(const ExoFighter *p1, const ExoFighter *p2, const Dash *
 	}
 
 	if (g_counter)
-		exo_text(200.0f, 128.0f, 0.5f, rgba(255, 80, 80, 255), "COUNTER");
+		exo_text(200.0f, 128.0f, 0.5f, rgba(255, 80, 80, 255), "COUNTER HIT");
+
+	if (p1->taunt_cd) {
+		snprintf(line, sizeof(line), "TAUNT CD %u", (unsigned)p1->taunt_cd);
+		exo_text(168.0f, 170.0f, 0.4f, dim, line);
+	}
 
 	bar(12.0f, 220.0f, 296.0f, 8.0f, (float)g_meter / 100.0f,
 	    g_meter >= 50 ? acc : dim);
 
-	exo_text(12.0f, 180.0f, 0.4f, dim, "Y SOCO  X SPECIAL  B GRAB");
-	exo_text(12.0f, 200.0f, 0.4f, dim, "P2 D-PAD ANDA  CIMA JAB");
+	exo_text(12.0f, 180.0f, 0.4f, dim, "SELECT TAUNT  START PAUSA");
+	exo_text(12.0f, 200.0f, 0.4f, dim, "TOQUE TIPOS  P2 D-PAD");
 }
 
 static void reset_round(ExoFighter *p1, ExoFighter *p2, Dash *d1)
@@ -564,6 +578,7 @@ int main(int argc, char **argv)
 	ExoFighter p1, p2;
 	Dash d1, d2;
 	int8_t cprev = 0;
+	bool paused = false;
 
 	(void)argc;
 	(void)argv;
@@ -589,127 +604,128 @@ int main(int argc, char **argv)
 
 		in = exo_input();
 		if (exo_down(EXO_BTN_START))
-			break;
+			paused = !paused;
 
-		if (exo_down(EXO_BTN_SELECT))
-			p2.type = exo_elem_next(p2.type);
-		if (exo_down(EXO_BTN_ZL))
-			p2.type2 = exo_elem_next(p2.type2);
-		if (exo_down(EXO_BTN_ZR))
-			set_atk(exo_elem_next(g_atk));
-		touch_hud(in, &p1, &p2);
+		if (paused) {
+			if (in->touch_press &&
+			    hit(in->touch_x, in->touch_y, 30, 150, 290, 210))
+				break;
+		} else {
+			touch_hud(in, &p1, &p2);
+			buf_tick();
+			dt = exo_dt();
+			frozen = (hitstop > 0);
+			ko = (p1.hp <= 0 || p2.hp <= 0);
+			act1 = exo_fighter_can_act(&p1);
+			grabbing = (p1.phase == EXO_PHASE_GRAB);
+			if (g_counter)
+				g_counter--;
 
-		buf_tick();
-		dt = exo_dt();
-		frozen = (hitstop > 0);
-		ko = (p1.hp <= 0 || p2.hp <= 0);
-		act1 = exo_fighter_can_act(&p1);
-		grabbing = (p1.phase == EXO_PHASE_GRAB);
-		if (g_counter)
-			g_counter--;
+			a2 = 0.0f;
+			if (exo_held(EXO_BTN_LEFT))  a2 -= 1.0f;
+			if (exo_held(EXO_BTN_RIGHT)) a2 += 1.0f;
+			sh = exo_held(EXO_BTN_L) || exo_held(EXO_BTN_R);
 
-		a2 = 0.0f;
-		if (exo_held(EXO_BTN_LEFT))  a2 -= 1.0f;
-		if (exo_held(EXO_BTN_RIGHT)) a2 += 1.0f;
-		sh = exo_held(EXO_BTN_L) || exo_held(EXO_BTN_R);
+			exo_fighter_crouch(&p1, in->stick_y < -0.50f);
+			exo_fighter_crouch(&p2, exo_held(EXO_BTN_DOWN));
 
-		exo_fighter_crouch(&p1, in->stick_y < -0.50f);
-		exo_fighter_crouch(&p2, exo_held(EXO_BTN_DOWN));
+			dash_poll(&d1, in->stick_x, act1 && !frozen && !ko && !grabbing, p1.body.grounded);
+			cd = axis_dir(in->cstick_x);
+			if (act1 && !frozen && !ko && !grabbing && p1.body.grounded && cd != 0 && cprev == 0)
+				dash_start(&d1, cd);
+			cprev = cd;
 
-		dash_poll(&d1, in->stick_x, act1 && !frozen && !ko && !grabbing, p1.body.grounded);
-		cd = axis_dir(in->cstick_x);
-		if (act1 && !frozen && !ko && !grabbing && p1.body.grounded && cd != 0 && cprev == 0)
-			dash_start(&d1, cd);
-		cprev = cd;
-
-		if (frozen) {
-			hitstop--;
-		} else if (!ko) {
-			if (grabbing) {
-				snap_grab(&p1, &p2);
-				td = read_throw_dir(&p1, in);
-				if (td != 0 || p1.timer == 0)
-					do_throw(&p1, &p2, td ? td : 1);
-			} else if (act1 || p1.phase == EXO_PHASE_BLOCK || p1.cancel) {
-				if (act1 || p1.phase == EXO_PHASE_BLOCK)
-					exo_fighter_guard(&p1, want_block(&p1, in->stick_x, false));
-				if (act1) {
-					bool j1 = (exo_down(EXO_BTN_A) ||
-					           (in->stick_y > 0.65f && p1.body.grounded))
-					          && !(in->stick_y < -0.50f);
-					control(&p1.body, in->stick_x, j1, &d1);
+			if (frozen) {
+				hitstop--;
+			} else if (!ko) {
+				if (grabbing) {
+					snap_grab(&p1, &p2);
+					td = read_throw_dir(&p1, in);
+					if (td != 0 || p1.timer == 0)
+						do_throw(&p1, &p2, td ? td : 1);
+				} else if (act1 || p1.phase == EXO_PHASE_BLOCK || p1.cancel) {
+					if (act1 || p1.phase == EXO_PHASE_BLOCK)
+						exo_fighter_guard(&p1, want_block(&p1, in->stick_x, false));
+					if (act1) {
+						bool j1 = (exo_down(EXO_BTN_A) ||
+						           (in->stick_y > 0.65f && p1.body.grounded))
+						          && !(in->stick_y < -0.50f);
+						control(&p1.body, in->stick_x, j1, &d1);
+						if (exo_down(EXO_BTN_SELECT))
+							exo_fighter_taunt(&p1, TAUNT_FR, TAUNT_CD);
+					} else {
+						p1.body.vx = 0.0f;
+						d1.run = 0;
+					}
+					if (buf_b && p1.body.grounded && act1) {
+						if (exo_fighter_attack(&p1, &GRAB_MOVE)) {
+							buf_b = 0;
+							d1.run = 0;
+						}
+					} else if (buf_y) {
+						if (exo_fighter_attack(&p1,
+						    pick_move(p1.body.grounded, in->stick_y < -0.50f))) {
+							buf_y = 0;
+							d1.run = 0;
+						}
+					} else if (buf_x && p1.body.grounded) {
+						if (g_meter >= 50 &&
+						    exo_fighter_attack(&p1, &g_special)) {
+							buf_x = 0;
+							d1.run = 0;
+							g_meter = (uint8_t)(g_meter - 50);
+						}
+					}
 				} else {
 					p1.body.vx = 0.0f;
 					d1.run = 0;
 				}
-				if (buf_b && p1.body.grounded && act1) {
-					if (exo_fighter_attack(&p1, &GRAB_MOVE)) {
-						buf_b = 0;
-						d1.run = 0;
-					}
-				} else if (buf_y) {
-					if (exo_fighter_attack(&p1,
-					    pick_move(p1.body.grounded, in->stick_y < -0.50f))) {
-						buf_y = 0;
-						d1.run = 0;
-					}
-				} else if (buf_x && p1.body.grounded) {
-					if (g_meter >= 50 &&
-					    exo_fighter_attack(&p1, &g_special)) {
-						buf_x = 0;
-						d1.run = 0;
-						g_meter = (uint8_t)(g_meter - 50);
-					}
-				}
-			} else {
-				p1.body.vx = 0.0f;
-				d1.run = 0;
-			}
 
-			if (p2.phase != EXO_PHASE_GRABBED) {
-				if (exo_fighter_can_act(&p2) || p2.phase == EXO_PHASE_BLOCK) {
-					exo_fighter_guard(&p2, want_block(&p2, a2, sh));
-					if (exo_fighter_can_act(&p2)) {
-						control(&p2.body, a2, false, &d2);
-						if (exo_down(EXO_BTN_UP))
-							exo_fighter_attack(&p2, &g_punch);
+				if (p2.phase != EXO_PHASE_GRABBED) {
+					if (exo_fighter_can_act(&p2) || p2.phase == EXO_PHASE_BLOCK) {
+						exo_fighter_guard(&p2, want_block(&p2, a2, sh));
+						if (exo_fighter_can_act(&p2)) {
+							control(&p2.body, a2, false, &d2);
+							if (exo_down(EXO_BTN_UP))
+								exo_fighter_attack(&p2, &g_punch);
+						} else {
+							p2.body.vx = 0.0f;
+						}
 					} else {
 						p2.body.vx = 0.0f;
 					}
-				} else {
-					p2.body.vx = 0.0f;
 				}
-			}
 
-			exo_body_integrate(&p1.body, dt, GRAVITY, GROUND_Y);
-			exo_body_integrate(&p2.body, dt, GRAVITY, GROUND_Y);
+				exo_body_integrate(&p1.body, dt, GRAVITY, GROUND_Y);
+				exo_body_integrate(&p2.body, dt, GRAVITY, GROUND_Y);
 
-			if (p1.phase == EXO_PHASE_GRAB)
-				snap_grab(&p1, &p2);
-			else
-				exo_body_separate(&p1.body, &p2.body, 0.0f, STAGE_W);
+				if (p1.phase == EXO_PHASE_GRAB)
+					snap_grab(&p1, &p2);
+				else
+					exo_body_separate(&p1.body, &p2.body, 0.0f, STAGE_W);
 
-			if (exo_fighter_can_act(&p1) || p1.phase == EXO_PHASE_BLOCK)
-				exo_body_face(&p1.body, &p2.body);
-			if (exo_fighter_can_act(&p2) || p2.phase == EXO_PHASE_BLOCK)
-				exo_body_face(&p2.body, &p1.body);
+				if (exo_fighter_can_act(&p1) || p1.phase == EXO_PHASE_BLOCK)
+					exo_body_face(&p1.body, &p2.body);
+				if (exo_fighter_can_act(&p2) || p2.phase == EXO_PHASE_BLOCK)
+					exo_body_face(&p2.body, &p1.body);
 
-			exo_fighter_tick(&p1);
-			exo_fighter_tick(&p2);
-			if (p1.phase != EXO_PHASE_GRAB) {
-				resolve_hits(&p1, &p2, &hitstop);
-				resolve_hits(&p2, &p1, &hitstop);
-			}
-			if (p2.phase != EXO_PHASE_HITSTUN &&
-			    p2.phase != EXO_PHASE_GRABBED &&
-			    p1.phase == EXO_PHASE_IDLE)
-				g_combo = 0;
-		} else {
-			ko_timer++;
-			if (ko_timer >= KO_WAIT) {
-				reset_round(&p1, &p2, &d1);
-				ko_timer = 0;
-				hitstop = 0;
+				exo_fighter_tick(&p1);
+				exo_fighter_tick(&p2);
+				if (p1.phase != EXO_PHASE_GRAB) {
+					resolve_hits(&p1, &p2, &hitstop);
+					resolve_hits(&p2, &p1, &hitstop);
+				}
+				if (p2.phase != EXO_PHASE_HITSTUN &&
+				    p2.phase != EXO_PHASE_GRABBED &&
+				    p1.phase == EXO_PHASE_IDLE)
+					g_combo = 0;
+			} else {
+				ko_timer++;
+				if (ko_timer >= KO_WAIT) {
+					reset_round(&p1, &p2, &d1);
+					ko_timer = 0;
+					hitstop = 0;
+				}
 			}
 		}
 
@@ -731,7 +747,7 @@ int main(int argc, char **argv)
 		draw_hitboxes(&p1, &p2, cam, EXO_EYE_RIGHT);
 		draw_hp_top(&p1, &p2, EXO_EYE_RIGHT);
 		exo_render_bottom(bot);
-		draw_bottom(&p1, &p2, &d1);
+		draw_bottom(&p1, &p2, &d1, paused);
 		exo_render_end();
 		exo_frame_end();
 	}
