@@ -22,6 +22,8 @@ void exo_fighter_init(ExoFighter *f, float x, float y, float w, float h)
 	f->type2 = EXO_NORMAL;
 	f->crouched = false;
 	f->cancel = false;
+	f->taunt_cd = 0;
+	f->taunt_lock = 0;
 }
 
 bool exo_fighter_attack(ExoFighter *f, const ExoMove *m)
@@ -47,6 +49,25 @@ bool exo_fighter_attack(ExoFighter *f, const ExoMove *m)
 	f->timer = m->startup;
 	f->hit_done = false;
 	f->cancel = false;
+	return true;
+}
+
+bool exo_fighter_taunt(ExoFighter *f, uint8_t frames, uint16_t cooldown)
+{
+	if (!f || frames == 0)
+		return false;
+	if (!exo_fighter_can_act(f) || !f->body.grounded)
+		return false;
+	if (f->taunt_cd > 0)
+		return false;
+
+	f->phase = EXO_PHASE_TAUNT;
+	f->timer = frames;
+	f->move = 0;
+	f->cancel = false;
+	f->crouched = false;
+	f->body.vx = 0.0f;
+	f->taunt_lock = cooldown;
 	return true;
 }
 
@@ -81,6 +102,9 @@ void exo_fighter_guard(ExoFighter *f, bool hold)
 
 void exo_fighter_tick(ExoFighter *f)
 {
+	if (f->taunt_cd > 0 && f->phase != EXO_PHASE_TAUNT)
+		f->taunt_cd--;
+
 	if (f->move && f->move->air_ok && f->body.grounded &&
 	    f->phase != EXO_PHASE_IDLE && f->phase != EXO_PHASE_HITSTUN) {
 		f->phase = EXO_PHASE_IDLE;
@@ -110,6 +134,11 @@ void exo_fighter_tick(ExoFighter *f)
 	case EXO_PHASE_ACTIVE:
 		f->phase = EXO_PHASE_RECOVERY;
 		f->timer = f->move ? f->move->recovery : 1;
+		break;
+	case EXO_PHASE_TAUNT:
+		f->phase = EXO_PHASE_IDLE;
+		f->move = 0;
+		f->taunt_cd = f->taunt_lock;
 		break;
 	case EXO_PHASE_RECOVERY:
 	case EXO_PHASE_HITSTUN:
