@@ -57,6 +57,7 @@ typedef struct ExoFighter {
 	bool cancel;
 	uint16_t taunt_cd;
 	uint16_t taunt_lock;
+	bool taunt_is_counter;
 } ExoFighter;
 
 bool exo_aabb(const ExoRect *a, const ExoRect *b);
@@ -64,6 +65,7 @@ bool exo_aabb(const ExoRect *a, const ExoRect *b);
 void exo_fighter_init(ExoFighter *f, float x, float y, float w, float h);
 bool exo_fighter_attack(ExoFighter *f, const ExoMove *move);
 bool exo_fighter_taunt(ExoFighter *f, uint8_t frames, uint16_t cooldown);
+void exo_fighter_taunt_riposte(ExoFighter *taunter, ExoFighter *fool);
 void exo_fighter_tick(ExoFighter *f);
 bool exo_fighter_can_act(const ExoFighter *f);
 bool exo_fighter_busy(const ExoFighter *f);
