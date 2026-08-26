@@ -107,6 +107,7 @@ static ExoMove g_punch, g_air, g_kick, g_special;
 static ExoElem g_atk = EXO_FIRE;
 static uint8_t g_combo;
 static uint8_t g_counter;
+static uint8_t g_riposte;
 static uint8_t g_meter;
 static uint8_t buf_y, buf_x, buf_b;
 
@@ -305,6 +306,15 @@ static void resolve_hits(ExoFighter *att, ExoFighter *vic, uint8_t *hitstop)
 		g_combo = 0;
 		att->hit_done = true;
 		*hitstop = 3;
+		return;
+	}
+
+	if (vic->phase == EXO_PHASE_TAUNT && vic->taunt_is_counter) {
+		exo_fighter_taunt_riposte(vic, att);
+		g_combo = 0;
+		g_riposte = 16;
+		att->hit_done = true;
+		*hitstop = 6;
 		return;
 	}
 
@@ -525,7 +535,9 @@ static void draw_bottom(const ExoFighter *p1, const ExoFighter *p2, const Dash *
 		exo_text(200.0f, 150.0f, 0.5f, acc, line);
 	}
 
-	if (g_counter)
+	if (g_riposte)
+		exo_text(200.0f, 128.0f, 0.5f, rgba(255, 80, 80, 255), "COUNTER");
+	else if (g_counter)
 		exo_text(200.0f, 128.0f, 0.5f, rgba(255, 80, 80, 255), "COUNTER HIT");
 
 	if (p1->taunt_cd) {
@@ -544,6 +556,7 @@ static void reset_round(ExoFighter *p1, ExoFighter *p2, Dash *d1)
 {
 	ExoElem a = p1->type, a2 = p1->type2;
 	ExoElem b = p2->type, b2 = p2->type2;
+	bool tc = p1->taunt_is_counter;
 
 	exo_fighter_init(p1, 140.0f, GROUND_Y - BODY_H, BODY_W, BODY_H);
 	exo_fighter_init(p2, 420.0f, GROUND_Y - BODY_H, BODY_W, BODY_H);
@@ -551,10 +564,12 @@ static void reset_round(ExoFighter *p1, ExoFighter *p2, Dash *d1)
 	p1->type2 = a2;
 	p2->type = b;
 	p2->type2 = b2;
+	p1->taunt_is_counter = tc;
 	d1->run = 0;
 
 	g_meter = 0;
 	g_counter = 0;
+	g_riposte = 0;
 	buf_y = buf_x = buf_b = 0;
 }
 
@@ -590,6 +605,7 @@ int main(int argc, char **argv)
 	exo_fighter_init(&p2, 420.0f, GROUND_Y - BODY_H, BODY_W, BODY_H);
 	p1.type = p1.type2 = EXO_FIRE;
 	p2.type = p2.type2 = EXO_WATER;
+	p1.taunt_is_counter = true;
 	d1.run = d1.tap = 0;
 	d1.dir = d1.tap_dir = d1.prev = 0;
 	d2 = d1;
@@ -620,6 +636,8 @@ int main(int argc, char **argv)
 			grabbing = (p1.phase == EXO_PHASE_GRAB);
 			if (g_counter)
 				g_counter--;
+			if (g_riposte)
+				g_riposte--;
 
 			a2 = 0.0f;
 			if (exo_held(EXO_BTN_LEFT))  a2 -= 1.0f;
