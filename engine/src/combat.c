@@ -2,6 +2,8 @@
 
 #define BLOCKSTUN 8
 #define BLOCK_KB  40.0f
+#define RIPOSTE_DMG 18
+#define RIPOSTE_STUN 20
 
 bool exo_aabb(const ExoRect *a, const ExoRect *b)
 {
@@ -24,6 +26,7 @@ void exo_fighter_init(ExoFighter *f, float x, float y, float w, float h)
 	f->cancel = false;
 	f->taunt_cd = 0;
 	f->taunt_lock = 0;
+	f->taunt_is_counter = false;
 }
 
 bool exo_fighter_attack(ExoFighter *f, const ExoMove *m)
@@ -69,6 +72,33 @@ bool exo_fighter_taunt(ExoFighter *f, uint8_t frames, uint16_t cooldown)
 	f->body.vx = 0.0f;
 	f->taunt_lock = cooldown;
 	return true;
+}
+
+void exo_fighter_taunt_riposte(ExoFighter *taunter, ExoFighter *fool)
+{
+	float dir;
+
+	if (!taunter || !fool)
+		return;
+
+	dir = (float)taunter->body.facing;
+	fool->phase = EXO_PHASE_HITSTUN;
+	fool->timer = RIPOSTE_STUN;
+	fool->move = 0;
+	fool->cancel = false;
+	fool->hit_done = true;
+	fool->body.vx = dir * 180.0f;
+	fool->body.vy = -90.0f;
+	fool->body.grounded = false;
+	fool->hp = (int16_t)(fool->hp - RIPOSTE_DMG);
+	if (fool->hp < 0)
+		fool->hp = 0;
+
+	taunter->phase = EXO_PHASE_RECOVERY;
+	taunter->timer = 10;
+	taunter->move = 0;
+	taunter->body.vx = 0.0f;
+	taunter->taunt_cd = taunter->taunt_lock;
 }
 
 bool exo_fighter_can_act(const ExoFighter *f)
