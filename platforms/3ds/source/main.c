@@ -115,6 +115,8 @@ static uint8_t g_meter;
 static uint8_t buf_y, buf_x, buf_b;
 static unsigned g_pid;
 static const ExoProfile *g_p1p;
+static C2D_SpriteSheet g_sheet;
+static uint8_t g_idle_t;
 
 typedef struct Match {
 	uint8_t wins[2];
@@ -458,16 +460,31 @@ static void touch_hud(const ExoInput *in, ExoFighter *p1, ExoFighter *p2)
 	}
 }
 
-static void draw_fighter(const ExoFighter *f, float cam, float par, uint32_t body, uint32_t accent)
+static void draw_fighter(const ExoFighter *f, float cam, float par,
+                         uint32_t body, uint32_t accent, bool use_spr)
 {
 	float h = f->crouched ? 22.0f : f->body.h;
 	float sy = f->body.y + f->body.h - h;
 	float sx = f->body.x - cam + par;
 
-	C2D_DrawRectangle(sx, sy, 0.0f, f->body.w, h, body, body, body, body);
-	{
-		float eye_x = (f->body.facing > 0) ? (sx + f->body.w - 14.0f) : (sx + 4.0f);
-		C2D_DrawRectangle(eye_x, sy + 4.0f, 0.0f, 10.0f, 6.0f, accent, accent, accent, accent);
+	if (use_spr && g_sheet) {
+		C2D_Sprite spr;
+		int fr = (g_idle_t / 20) & 1;
+
+		C2D_SpriteFromSheet(&spr, g_sheet, fr);
+		C2D_SpriteSetCenter(&spr, 0.5f, 1.0f);
+		C2D_SpriteSetPos(&spr, sx + f->body.w * 0.5f, f->body.y + f->body.h);
+		C2D_SpriteSetScale(&spr,
+		                    (f->body.facing > 0) ? 1.0f : -1.0f,
+		                    f->crouched ? 0.55f : 1.0f);
+		C2D_DrawSprite(&spr);
+	} else {
+		C2D_DrawRectangle(sx, sy, 0.0f, f->body.w, h, body, body, body, body);
+		{
+			float eye_x = (f->body.facing > 0) ? (sx + f->body.w - 14.0f) : (sx + 4.0f);
+			C2D_DrawRectangle(eye_x, sy + 4.0f, 0.0f, 10.0f, 6.0f,
+			                  accent, accent, accent, accent);
+		}
 	}
 	if (f->phase == EXO_PHASE_TAUNT) {
 		uint32_t ylw = rgba(255, 220, 60, 255);
@@ -575,8 +592,8 @@ static void draw_world(ExoEye eye, float cam, const ExoFighter *p1, const ExoFig
 	C2D_DrawRectangle(0.0f, GROUND_Y, 0.0f, EXO_TOP_W, EXO_TOP_H - GROUND_Y,
 	                  floorc, floorc, floorc, floorc);
 	C2D_DrawRectangle(0.0f, GROUND_Y - 2.0f, 0.0f, EXO_TOP_W, 3.0f, line, line, line, line);
-	draw_fighter(p1, cam, mid, c1, c1a);
-	draw_fighter(p2, cam, mid, c2, c2a);
+	draw_fighter(p1, cam, mid, c1, c1a, true);
+	draw_fighter(p2, cam, mid, c2, c2a, false);
 }
 
 static void bar(float x, float y, float w, float h, float fill, uint32_t fg)
@@ -662,7 +679,7 @@ static void draw_bottom(const ExoFighter *p1, const ExoFighter *p2, const Dash *
 	    g_meter >= p_meter_cost() ? acc : dim);
 
 	exo_text(12.0f, 186.0f, 0.4f, dim, "ZL PERFIL  SELECT TAUNT");
-	exo_text(12.0f, 202.0f, 0.4f, dim, "START PAUSA  P2 D-PAD");
+	exo_text(12.0f, 202.0f, 0.4f, dim, g_sheet ? "SPRITE ROMFS  P2 D-PAD" : "SEM SPRITE  P2 D-PAD");
 }
 
 static void reset_round(ExoFighter *p1, ExoFighter *p2, Dash *d1)
@@ -732,6 +749,7 @@ int main(int argc, char **argv)
 	d2 = d1;
 	clear = rgba(8, 8, 12, 255);
 	bot = rgba(20, 32, 56, 255);
+	g_sheet = C2D_SpriteSheetLoad("romfs:/gfx/p1.t3x");
 
 	while (exo_frame_begin()) {
 		float dt, a2, mid, cam;
@@ -767,6 +785,7 @@ int main(int argc, char **argv)
 			if (g_riposte)
 				g_riposte--;
 			combo_tick();
+			g_idle_t++;
 
 			a2 = 0.0f;
 			if (exo_held(EXO_BTN_LEFT))  a2 -= 1.0f;
@@ -911,6 +930,8 @@ int main(int argc, char **argv)
 		exo_frame_end();
 	}
 
+	if (g_sheet)
+		C2D_SpriteSheetFree(g_sheet);
 	exo_shutdown();
 	return 0;
 }
