@@ -11,6 +11,7 @@ static C3D_RenderTarget *g_left;
 static C3D_RenderTarget *g_right;
 static C2D_TextBuf g_tbuf;
 static bool  g_new3ds;
+static bool  g_romfs;
 static u64   g_t0, g_t1;
 static float g_dt;
 static float g_slider;
@@ -61,6 +62,7 @@ bool exo_init(void)
 		return false;
 
 	g_tbuf = C2D_TextBufNew(512);
+	g_romfs = (romfsInit() == 0);
 	APT_CheckNew3DS(&g_new3ds);
 	g_t0 = osGetTime();
 	g_t1 = g_t0;
@@ -79,6 +81,10 @@ void exo_shutdown(void)
 	}
 	C2D_Fini();
 	C3D_Fini();
+	if (g_romfs) {
+		romfsExit();
+		g_romfs = false;
+	}
 	gfxExit();
 }
 
@@ -174,7 +180,7 @@ static void bot_px(int x, int y, u8 r, u8 g, u8 b)
 	u32 off;
 	if (!g_botfb || x < 0 || y < 0 || x >= 320 || y >= 240)
 		return;
-	/* framebuffer de baixo: 240×320, BGR8, rodado */
+	/* framebuffer de baixo: 240x320, BGR8, rodado */
 	off = ((u32)x * 240u + (u32)(239 - y)) * 3u;
 	g_botfb[off + 0] = b;
 	g_botfb[off + 1] = g;
