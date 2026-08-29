@@ -107,6 +107,8 @@ static const ExoMove SPECIAL_BASE = {
 static ExoMove g_punch, g_air, g_kick, g_special;
 static ExoElem g_atk = EXO_FIRE;
 static uint8_t g_combo;
+static uint8_t g_combo_disp;
+static uint8_t g_combo_hold;
 static uint8_t g_counter;
 static uint8_t g_riposte;
 static uint8_t g_meter;
@@ -147,6 +149,18 @@ static void meter_add(uint8_t n)
 	uint16_t v = (uint16_t)g_meter + n;
 
 	g_meter = (uint8_t)(v > cap ? cap : v);
+}
+
+static void combo_tick(void)
+{
+	if (g_combo >= 2) {
+		g_combo_disp = g_combo;
+		g_combo_hold = 48;
+	} else if (g_combo_hold) {
+		g_combo_hold--;
+		if (!g_combo_hold)
+			g_combo_disp = 0;
+	}
 }
 
 static void set_atk(ExoElem e)
@@ -520,6 +534,25 @@ static void draw_hp_top(const ExoFighter *p1, const ExoFighter *p2, ExoEye eye)
 		C2D_DrawRectangle(192.0f, 18.0f, 0.0f, 16.0f, 6.0f, gold, gold, gold, gold);
 }
 
+static void draw_combo_top(ExoEye eye)
+{
+	char line[24];
+	float near = exo_parallax(18.0f, eye);
+	uint32_t gold = rgba(255, 210, 70, 255);
+	uint32_t red  = rgba(255, 70, 70, 255);
+
+	if (g_combo_disp >= 2) {
+		snprintf(line, sizeof(line), "%u HIT", (unsigned)g_combo_disp);
+		exo_top_text(200.0f + near, 32.0f, 0.7f, gold, line);
+	}
+	if (g_riposte)
+		exo_top_text(200.0f + near, 56.0f, 0.5f, red, "COUNTER");
+	else if (g_counter)
+		exo_top_text(200.0f + near, 56.0f, 0.5f, red, "CH");
+	if (g_match.last_round && !g_match.over)
+		exo_top_text(200.0f + near, 208.0f, 0.45f, gold, "ULTIMO");
+}
+
 static void draw_world(ExoEye eye, float cam, const ExoFighter *p1, const ExoFighter *p2)
 {
 	float bg  = exo_parallax(4.0f,  eye);
@@ -619,16 +652,6 @@ static void draw_bottom(const ExoFighter *p1, const ExoFighter *p2, const Dash *
 	snprintf(line, sizeof(line), "DASH P1 %s", d1->run ? ">>>" : "---");
 	exo_text(12.0f, 156.0f, 0.45f, d1->run ? acc : dim, line);
 
-	if (g_combo >= 2) {
-		snprintf(line, sizeof(line), "COMBO %u", (unsigned)g_combo);
-		exo_text(200.0f, 156.0f, 0.5f, acc, line);
-	}
-
-	if (g_riposte)
-		exo_text(200.0f, 136.0f, 0.5f, rgba(255, 80, 80, 255), "COUNTER");
-	else if (g_counter)
-		exo_text(200.0f, 136.0f, 0.5f, rgba(255, 80, 80, 255), "COUNTER HIT");
-
 	if (p1->taunt_cd) {
 		snprintf(line, sizeof(line), "TAUNT CD %u", (unsigned)p1->taunt_cd);
 		exo_text(168.0f, 176.0f, 0.4f, dim, line);
@@ -664,6 +687,8 @@ static void reset_round(ExoFighter *p1, ExoFighter *p2, Dash *d1)
 	g_counter = 0;
 	g_riposte = 0;
 	g_combo = 0;
+	g_combo_disp = 0;
+	g_combo_hold = 0;
 	buf_y = buf_x = buf_b = 0;
 }
 
@@ -741,6 +766,7 @@ int main(int argc, char **argv)
 				g_counter--;
 			if (g_riposte)
 				g_riposte--;
+			combo_tick();
 
 			a2 = 0.0f;
 			if (exo_held(EXO_BTN_LEFT))  a2 -= 1.0f;
@@ -871,12 +897,14 @@ int main(int argc, char **argv)
 		draw_guard(&p2, cam, EXO_EYE_LEFT);
 		draw_hitboxes(&p1, &p2, cam, EXO_EYE_LEFT);
 		draw_hp_top(&p1, &p2, EXO_EYE_LEFT);
+		draw_combo_top(EXO_EYE_LEFT);
 		exo_render_eye(EXO_EYE_RIGHT, clear);
 		draw_world(EXO_EYE_RIGHT, cam, &p1, &p2);
 		draw_guard(&p1, cam, EXO_EYE_RIGHT);
 		draw_guard(&p2, cam, EXO_EYE_RIGHT);
 		draw_hitboxes(&p1, &p2, cam, EXO_EYE_RIGHT);
 		draw_hp_top(&p1, &p2, EXO_EYE_RIGHT);
+		draw_combo_top(EXO_EYE_RIGHT);
 		exo_render_bottom(bot);
 		draw_bottom(&p1, &p2, &d1, paused);
 		exo_render_end();
