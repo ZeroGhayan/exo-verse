@@ -1,7 +1,7 @@
 #ifndef EXO_PROFILE_H
 #define EXO_PROFILE_H
 
-#include "exo/elem.h"
+#include "exo/combat.h"
 
 typedef struct ExoProfile {
 	const char *name;
