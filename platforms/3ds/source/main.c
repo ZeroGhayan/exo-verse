@@ -2,6 +2,7 @@
 #include "exo/body.h"
 #include "exo/combat.h"
 #include "exo/elem.h"
+#include "exo/profile.h"
 #include <citro2d.h>
 #include <stdio.h>
 
@@ -22,8 +23,6 @@
 #define TAP_WIN    20
 #define TAP_EDGE   0.40f
 #define BUF_WIN    8
-#define TAUNT_FR   48
-#define TAUNT_CD   180
 
 static const ExoMove PUNCH_BASE = {
 	.startup  = 6,
@@ -112,6 +111,8 @@ static uint8_t g_counter;
 static uint8_t g_riposte;
 static uint8_t g_meter;
 static uint8_t buf_y, buf_x, buf_b;
+static unsigned g_pid;
+static const ExoProfile *g_p1p;
 
 typedef struct Match {
 	uint8_t wins[2];
@@ -129,6 +130,24 @@ typedef struct Dash {
 	int8_t  tap_dir;
 	int8_t  prev;
 } Dash;
+
+static uint8_t p_meter_max(void)
+{
+	return g_p1p ? g_p1p->meter_max : 100;
+}
+
+static uint8_t p_meter_cost(void)
+{
+	return g_p1p ? g_p1p->meter_cost : 50;
+}
+
+static void meter_add(uint8_t n)
+{
+	uint16_t cap = p_meter_max();
+	uint16_t v = (uint16_t)g_meter + n;
+
+	g_meter = (uint8_t)(v > cap ? cap : v);
+}
 
 static void set_atk(ExoElem e)
 {
@@ -375,10 +394,7 @@ static void resolve_hits(ExoFighter *att, ExoFighter *vic, uint8_t *hitstop)
 				vic->hp = 1;
 		}
 		g_combo = 0;
-		if (g_meter < 96)
-			g_meter = (uint8_t)(g_meter + 4);
-		else
-			g_meter = 100;
+		meter_add(4);
 		*hitstop = 2;
 	} else {
 		bool ch = (vic->phase == EXO_PHASE_STARTUP ||
@@ -386,10 +402,8 @@ static void resolve_hits(ExoFighter *att, ExoFighter *vic, uint8_t *hitstop)
 		exo_fighter_apply_hit(vic, att);
 		att->cancel = true;
 		g_combo++;
-		if (m && m->meter_hit) {
-			uint16_t n = (uint16_t)g_meter + m->meter_hit;
-			g_meter = (uint8_t)(n > 100 ? 100 : n);
-		}
+		if (m && m->meter_hit)
+			meter_add(m->meter_hit);
 		if (ch) {
 			int16_t extra = 5;
 			if (vic->hp > extra)
@@ -549,6 +563,7 @@ static void draw_bottom(const ExoFighter *p1, const ExoFighter *p2, const Dash *
 	uint32_t acc = rgba(255, 200, 80, 255);
 	float f1 = (p1->hp_max > 0) ? (float)p1->hp / (float)p1->hp_max : 0.0f;
 	float f2 = (p2->hp_max > 0) ? (float)p2->hp / (float)p2->hp_max : 0.0f;
+	float mmax = (float)p_meter_max();
 
 	exo_text_begin();
 	if (paused) {
@@ -561,8 +576,10 @@ static void draw_bottom(const ExoFighter *p1, const ExoFighter *p2, const Dash *
 	bar(12.0f, 16.0f, 140.0f, 14.0f, f1, rgba(70, 180, 255, 255));
 	bar(168.0f, 16.0f, 140.0f, 14.0f, f2, rgba(230, 70, 90, 255));
 
-	snprintf(line, sizeof(line), "P1 %s/%s  %d",
-	         exo_elem_name(p1->type), exo_elem_name(p1->type2), (int)p1->hp);
+	snprintf(line, sizeof(line), "P1 %s %s  %d/%d",
+	         g_p1p ? g_p1p->name : "?",
+	         p1->taunt_is_counter ? "CNT" : "POSE",
+	         (int)p1->hp, (int)p1->hp_max);
 	exo_text(12.0f, 36.0f, 0.45f, t, line);
 	snprintf(line, sizeof(line), "P2 %s/%s  %d",
 	         exo_elem_name(p2->type), exo_elem_name(p2->type2), (int)p2->hp);
@@ -617,26 +634,30 @@ static void draw_bottom(const ExoFighter *p1, const ExoFighter *p2, const Dash *
 		exo_text(168.0f, 176.0f, 0.4f, dim, line);
 	}
 
-	bar(12.0f, 220.0f, 296.0f, 8.0f, (float)g_meter / 100.0f,
-	    g_meter >= 50 ? acc : dim);
+	bar(12.0f, 220.0f, 296.0f, 8.0f,
+	    (mmax > 0.0f) ? (float)g_meter / mmax : 0.0f,
+	    g_meter >= p_meter_cost() ? acc : dim);
 
-	exo_text(12.0f, 186.0f, 0.4f, dim, "SELECT TAUNT  START PAUSA");
-	exo_text(12.0f, 202.0f, 0.4f, dim, "TOQUE TIPOS  P2 D-PAD");
+	exo_text(12.0f, 186.0f, 0.4f, dim, "ZL PERFIL  SELECT TAUNT");
+	exo_text(12.0f, 202.0f, 0.4f, dim, "START PAUSA  P2 D-PAD");
 }
 
 static void reset_round(ExoFighter *p1, ExoFighter *p2, Dash *d1)
 {
 	ExoElem a = p1->type, a2 = p1->type2;
 	ExoElem b = p2->type, b2 = p2->type2;
-	bool tc = p1->taunt_is_counter;
 
 	exo_fighter_init(p1, 140.0f, GROUND_Y - BODY_H, BODY_W, BODY_H);
 	exo_fighter_init(p2, 420.0f, GROUND_Y - BODY_H, BODY_W, BODY_H);
+	if (g_p1p) {
+		p1->hp_max = g_p1p->hp;
+		p1->hp = g_p1p->hp;
+		p1->taunt_is_counter = g_p1p->taunt_is_counter;
+	}
 	p1->type = a;
 	p1->type2 = a2;
 	p2->type = b;
 	p2->type2 = b2;
-	p1->taunt_is_counter = tc;
 	d1->run = 0;
 
 	g_meter = 0;
@@ -675,11 +696,12 @@ int main(int argc, char **argv)
 
 	set_atk(EXO_FIRE);
 	match_init();
+	g_pid = 0;
+	g_p1p = exo_profile(g_pid);
 	exo_fighter_init(&p1, 140.0f, GROUND_Y - BODY_H, BODY_W, BODY_H);
 	exo_fighter_init(&p2, 420.0f, GROUND_Y - BODY_H, BODY_W, BODY_H);
-	p1.type = p1.type2 = EXO_FIRE;
+	exo_fighter_apply_profile(&p1, g_p1p);
 	p2.type = p2.type2 = EXO_WATER;
-	p1.taunt_is_counter = true;
 	d1.run = d1.tap = 0;
 	d1.dir = d1.tap_dir = d1.prev = 0;
 	d2 = d1;
@@ -701,6 +723,13 @@ int main(int argc, char **argv)
 			    hit(in->touch_x, in->touch_y, 30, 150, 290, 210))
 				break;
 		} else {
+			if (exo_down(EXO_BTN_ZL)) {
+				g_pid++;
+				g_p1p = exo_profile(g_pid);
+				exo_fighter_apply_profile(&p1, g_p1p);
+				if (g_meter > p_meter_max())
+					g_meter = p_meter_max();
+			}
 			touch_hud(in, &p1, &p2);
 			buf_tick();
 			dt = exo_dt();
@@ -743,8 +772,9 @@ int main(int argc, char **argv)
 						           (in->stick_y > 0.65f && p1.body.grounded))
 						          && !(in->stick_y < -0.50f);
 						control(&p1.body, in->stick_x, j1, &d1);
-						if (exo_down(EXO_BTN_SELECT))
-							exo_fighter_taunt(&p1, TAUNT_FR, TAUNT_CD);
+						if (exo_down(EXO_BTN_SELECT) && g_p1p)
+							exo_fighter_taunt(&p1, g_p1p->taunt_frames,
+							                  g_p1p->taunt_cd);
 					} else {
 						p1.body.vx = 0.0f;
 						d1.run = 0;
@@ -761,11 +791,11 @@ int main(int argc, char **argv)
 							d1.run = 0;
 						}
 					} else if (buf_x && p1.body.grounded) {
-						if (g_meter >= 50 &&
+						if (g_meter >= p_meter_cost() &&
 						    exo_fighter_attack(&p1, &g_special)) {
 							buf_x = 0;
 							d1.run = 0;
-							g_meter = (uint8_t)(g_meter - 50);
+							g_meter = (uint8_t)(g_meter - p_meter_cost());
 						}
 					}
 				} else {
