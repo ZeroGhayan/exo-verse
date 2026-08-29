@@ -15,6 +15,8 @@
 #define BODY_W     36.0f
 #define BODY_H     42.0f
 #define KO_WAIT    90
+#define MATCH_WAIT 90
+#define FT_WINS    2
 #define DASH_FR    10
 #define DASH_SPD   320.0f
 #define TAP_WIN    20
@@ -111,6 +113,15 @@ static uint8_t g_riposte;
 static uint8_t g_meter;
 static uint8_t buf_y, buf_x, buf_b;
 
+typedef struct Match {
+	uint8_t wins[2];
+	uint8_t round;
+	bool last_round;
+	bool over;
+} Match;
+
+static Match g_match;
+
 typedef struct Dash {
 	uint8_t run;
 	int8_t  dir;
@@ -131,6 +142,34 @@ static void set_atk(ExoElem e)
 	g_combo = 0;
 	g_special = SPECIAL_BASE;
 	g_special.type = e;
+}
+
+static void match_init(void)
+{
+	g_match.wins[0] = 0;
+	g_match.wins[1] = 0;
+	g_match.round = 1;
+	g_match.last_round = false;
+	g_match.over = false;
+}
+
+static void match_award(const ExoFighter *p1, const ExoFighter *p2)
+{
+	if (p1->hp <= 0 && p2->hp <= 0)
+		return;
+	if (p2->hp <= 0)
+		g_match.wins[0]++;
+	else
+		g_match.wins[1]++;
+
+	if (g_match.wins[0] >= FT_WINS || g_match.wins[1] >= FT_WINS)
+		g_match.over = true;
+	else {
+		g_match.round++;
+		g_match.last_round =
+		    (g_match.wins[0] == FT_WINS - 1 &&
+		     g_match.wins[1] == FT_WINS - 1);
+	}
 }
 
 static int8_t axis_dir(float x)
@@ -435,19 +474,36 @@ static void draw_hitboxes(const ExoFighter *a, const ExoFighter *b, float cam, E
 		C2D_DrawRectangle(d.x - cam + par, d.y, 0.0f, d.w, d.h, hx, hx, hx, hx);
 }
 
+static void pip(float x, float y, uint32_t c)
+{
+	C2D_DrawRectangle(x, y, 0.0f, 8.0f, 6.0f, c, c, c, c);
+}
+
 static void draw_hp_top(const ExoFighter *p1, const ExoFighter *p2, ExoEye eye)
 {
 	float near = exo_parallax(16.0f, eye);
 	uint32_t back = rgba(20, 20, 24, 255);
 	uint32_t b1   = rgba(70, 180, 255, 255);
 	uint32_t b2   = rgba(230, 70, 90, 255);
+	uint32_t gold = rgba(255, 200, 80, 255);
 	float w1 = 120.0f * ((p1->hp_max > 0) ? (float)p1->hp / (float)p1->hp_max : 0.0f);
 	float w2 = 120.0f * ((p2->hp_max > 0) ? (float)p2->hp / (float)p2->hp_max : 0.0f);
+	int i;
 
 	C2D_DrawRectangle(12.0f + near, 8.0f, 0.0f, 120.0f, 8.0f, back, back, back, back);
 	C2D_DrawRectangle(12.0f + near, 8.0f, 0.0f, w1, 8.0f, b1, b1, b1, b1);
 	C2D_DrawRectangle(268.0f - near, 8.0f, 0.0f, 120.0f, 8.0f, back, back, back, back);
 	C2D_DrawRectangle(268.0f - near + (120.0f - w2), 8.0f, 0.0f, w2, 8.0f, b2, b2, b2, b2);
+
+	for (i = 0; i < FT_WINS; i++)
+		pip(12.0f + near + (float)(i * 10), 18.0f,
+		    (i < (int)g_match.wins[0]) ? b1 : back);
+	for (i = 0; i < FT_WINS; i++)
+		pip(268.0f - near + 120.0f - 8.0f - (float)(i * 10), 18.0f,
+		    (i < (int)g_match.wins[1]) ? b2 : back);
+
+	if (g_match.last_round && !g_match.over)
+		C2D_DrawRectangle(192.0f, 18.0f, 0.0f, 16.0f, 6.0f, gold, gold, gold, gold);
 }
 
 static void draw_world(ExoEye eye, float cam, const ExoFighter *p1, const ExoFighter *p2)
@@ -512,44 +568,60 @@ static void draw_bottom(const ExoFighter *p1, const ExoFighter *p2, const Dash *
 	         exo_elem_name(p2->type), exo_elem_name(p2->type2), (int)p2->hp);
 	exo_text(12.0f, 56.0f, 0.45f, t, line);
 
+	if (g_match.over) {
+		snprintf(line, sizeof(line), "%s  %u-%u",
+		         (g_match.wins[0] >= FT_WINS) ? "P1 VENCE" : "P2 VENCE",
+		         (unsigned)g_match.wins[0], (unsigned)g_match.wins[1]);
+		exo_text(12.0f, 76.0f, 0.5f, acc, line);
+	} else if (g_match.last_round) {
+		snprintf(line, sizeof(line), "ULTIMO  %u-%u",
+		         (unsigned)g_match.wins[0], (unsigned)g_match.wins[1]);
+		exo_text(12.0f, 76.0f, 0.5f, acc, line);
+	} else {
+		snprintf(line, sizeof(line), "FT2  %u-%u  R%u",
+		         (unsigned)g_match.wins[0], (unsigned)g_match.wins[1],
+		         (unsigned)g_match.round);
+		exo_text(12.0f, 76.0f, 0.45f, t, line);
+	}
+
 	snprintf(line, sizeof(line), "SOCO %s  x%u.%02u",
 	         exo_elem_name(g_atk), (unsigned)(mp / 100), (unsigned)(mp % 100));
-	exo_text(12.0f, 84.0f, 0.45f, acc, line);
+	exo_text(12.0f, 96.0f, 0.45f, acc, line);
 	snprintf(line, sizeof(line), "CHUTE FIGHTING  x%u.%02u",
 	         (unsigned)(mk / 100), (unsigned)(mk % 100));
-	exo_text(12.0f, 104.0f, 0.45f, t, line);
+	exo_text(12.0f, 114.0f, 0.45f, t, line);
 
 	if (p1->phase == EXO_PHASE_GRAB)
-		exo_text(12.0f, 128.0f, 0.45f, acc, "CLINCH  PAD ARREMESSAR");
+		exo_text(12.0f, 136.0f, 0.45f, acc, "CLINCH  PAD ARREMESSAR");
 	else if (p1->phase == EXO_PHASE_TAUNT)
-		exo_text(12.0f, 128.0f, 0.45f, acc, "TAUNT");
+		exo_text(12.0f, 136.0f, 0.45f, acc, "TAUNT");
 	else
-		exo_text(12.0f, 128.0f, 0.45f, dim,
+		exo_text(12.0f, 136.0f, 0.45f, dim,
 		         p2->crouched ? "P2 AGACHADO  LOW OK" : "P2 EM PE  OVER OK");
 
 	snprintf(line, sizeof(line), "DASH P1 %s", d1->run ? ">>>" : "---");
-	exo_text(12.0f, 150.0f, 0.45f, d1->run ? acc : dim, line);
+	exo_text(12.0f, 156.0f, 0.45f, d1->run ? acc : dim, line);
 
 	if (g_combo >= 2) {
 		snprintf(line, sizeof(line), "COMBO %u", (unsigned)g_combo);
-		exo_text(200.0f, 150.0f, 0.5f, acc, line);
+		exo_text(200.0f, 156.0f, 0.5f, acc, line);
 	}
 
 	if (g_riposte)
-		exo_text(200.0f, 128.0f, 0.5f, rgba(255, 80, 80, 255), "COUNTER");
+		exo_text(200.0f, 136.0f, 0.5f, rgba(255, 80, 80, 255), "COUNTER");
 	else if (g_counter)
-		exo_text(200.0f, 128.0f, 0.5f, rgba(255, 80, 80, 255), "COUNTER HIT");
+		exo_text(200.0f, 136.0f, 0.5f, rgba(255, 80, 80, 255), "COUNTER HIT");
 
 	if (p1->taunt_cd) {
 		snprintf(line, sizeof(line), "TAUNT CD %u", (unsigned)p1->taunt_cd);
-		exo_text(168.0f, 170.0f, 0.4f, dim, line);
+		exo_text(168.0f, 176.0f, 0.4f, dim, line);
 	}
 
 	bar(12.0f, 220.0f, 296.0f, 8.0f, (float)g_meter / 100.0f,
 	    g_meter >= 50 ? acc : dim);
 
-	exo_text(12.0f, 180.0f, 0.4f, dim, "SELECT TAUNT  START PAUSA");
-	exo_text(12.0f, 200.0f, 0.4f, dim, "TOQUE TIPOS  P2 D-PAD");
+	exo_text(12.0f, 186.0f, 0.4f, dim, "SELECT TAUNT  START PAUSA");
+	exo_text(12.0f, 202.0f, 0.4f, dim, "TOQUE TIPOS  P2 D-PAD");
 }
 
 static void reset_round(ExoFighter *p1, ExoFighter *p2, Dash *d1)
@@ -570,6 +642,7 @@ static void reset_round(ExoFighter *p1, ExoFighter *p2, Dash *d1)
 	g_meter = 0;
 	g_counter = 0;
 	g_riposte = 0;
+	g_combo = 0;
 	buf_y = buf_x = buf_b = 0;
 }
 
@@ -601,6 +674,7 @@ int main(int argc, char **argv)
 		return 1;
 
 	set_atk(EXO_FIRE);
+	match_init();
 	exo_fighter_init(&p1, 140.0f, GROUND_Y - BODY_H, BODY_W, BODY_H);
 	exo_fighter_init(&p2, 420.0f, GROUND_Y - BODY_H, BODY_W, BODY_H);
 	p1.type = p1.type2 = EXO_FIRE;
@@ -739,7 +813,16 @@ int main(int argc, char **argv)
 					g_combo = 0;
 			} else {
 				ko_timer++;
-				if (ko_timer >= KO_WAIT) {
+				if (ko_timer == KO_WAIT) {
+					match_award(&p1, &p2);
+					if (!g_match.over) {
+						reset_round(&p1, &p2, &d1);
+						ko_timer = 0;
+						hitstop = 0;
+					}
+				} else if (g_match.over &&
+				           ko_timer >= KO_WAIT + MATCH_WAIT) {
+					match_init();
 					reset_round(&p1, &p2, &d1);
 					ko_timer = 0;
 					hitstop = 0;
