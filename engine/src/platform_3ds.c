@@ -9,6 +9,7 @@
 
 static C3D_RenderTarget *g_left;
 static C3D_RenderTarget *g_right;
+static C2D_TextBuf g_tbuf;
 static bool  g_new3ds;
 static u64   g_t0, g_t1;
 static float g_dt;
@@ -59,6 +60,7 @@ bool exo_init(void)
 	if (!g_left || !g_right)
 		return false;
 
+	g_tbuf = C2D_TextBufNew(512);
 	APT_CheckNew3DS(&g_new3ds);
 	g_t0 = osGetTime();
 	g_t1 = g_t0;
@@ -71,6 +73,10 @@ bool exo_init(void)
 
 void exo_shutdown(void)
 {
+	if (g_tbuf) {
+		C2D_TextBufDelete(g_tbuf);
+		g_tbuf = NULL;
+	}
 	C2D_Fini();
 	C3D_Fini();
 	gfxExit();
@@ -148,6 +154,19 @@ float exo_parallax(float depth, ExoEye eye)
 {
 	float sign = (eye == EXO_EYE_LEFT) ? -1.0f : 1.0f;
 	return sign * g_slider * depth;
+}
+
+void exo_top_text(float x, float y, float scale, uint32_t rgba, const char *s)
+{
+	C2D_Text t;
+
+	if (!g_tbuf || !s || !s[0])
+		return;
+	C2D_TextBufClear(g_tbuf);
+	C2D_TextParse(&t, g_tbuf, s);
+	C2D_TextOptimize(&t);
+	C2D_DrawText(&t, C2D_WithColor | C2D_AlignCenter, x, y, 0.5f,
+	             scale, scale, rgba);
 }
 
 static void bot_px(int x, int y, u8 r, u8 g, u8 b)
