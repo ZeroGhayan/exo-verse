@@ -21,6 +21,7 @@ void  exo_render_bottom(uint32_t clear_rgba);
 void  exo_bot_rect(float x, float y, float w, float h, uint32_t rgba);
 void  exo_text_begin(void);
 void  exo_text(float x, float y, float scale, uint32_t rgba, const char *s);
+void  exo_top_text(float x, float y, float scale, uint32_t rgba, const char *s);
 
 /* deslocamento em pixels: depth 0 = tela, maior = mais perto */
 float exo_parallax(float depth, ExoEye eye);
